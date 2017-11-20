@@ -13,10 +13,12 @@ parser.add_argument('--parserobots', action="store_true", default=False, require
 parser.add_argument('--debug', action="store_true", default=False, help="Enable debug mode")
 parser.add_argument('-v', '--verbose', action="store_true", help="Enable verbose output")
 parser.add_argument('--output', action="store", default=None, help="Output file")
-parser.add_argument('--exclude', action="append", default=[], required=False, help="Exclude Url if contain")
+parser.add_argument('--ignore', action="append", default=[], required=False, help="Ignore Url if contain - won't be scanned at all")
+parser.add_argument('--exclude', action="append", default=[], required=False, help="Exclude Url from sitemap if contain - scanned but not added")
 parser.add_argument('--drop', action="append", default=[], required=False, help="Drop a string from the url")
 parser.add_argument('--report', action="store_true", default=False, required=False, help="Display a report")
 parser.add_argument('--images', action="store_true", default=False, required=False, help="Add image to sitemap.xml (see https://support.google.com/webmasters/answer/178636?hl=en)")
+parser.add_argument('--forcehttps', action="store_true", default=False, required=False, help="Force all urls to be HTTPS")
 
 group = parser.add_mutually_exclusive_group()
 group.add_argument('--config', action="store", default=None, help="Configuration file in json format")

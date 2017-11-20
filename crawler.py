@@ -17,11 +17,12 @@ class Crawler():
 	parserobots = False
 	output 	= None
 	report 	= False
+	forcehttps = False
 
 	config 	= None
 	domain	= ""
 
-	exclude = []
+	ignore = []
 	skipext = []
 	drop    = []
 
@@ -29,11 +30,12 @@ class Crawler():
 
 	tocrawl = set([])
 	crawled = set([])
+	ignored = set([])
 	excluded = set([])
 
 	marked = {}
 
-	not_parseable_ressources = (".epub", ".mobi", ".docx", ".doc", ".opf", ".7z", ".ibooks", ".cbr", ".avi", ".mkv", ".mp4", ".jpg", ".jpeg", ".png", ".gif" ,".pdf", ".iso", ".rar", ".tar", ".tgz", ".zip", ".dmg", ".exe")
+	not_parseable_resources = (".epub", ".mobi", ".docx", ".doc", ".opf", ".7z", ".ibooks", ".cbr", ".avi", ".mkv", ".mp4", ".jpg", ".jpeg", ".png", ".gif" ,".pdf", ".iso", ".rar", ".tar", ".tgz", ".zip", ".dmg", ".exe")
 
 	# TODO also search for window.location={.*?}
 	linkregex = re.compile(b'<a [^>]*href=[\'|"](.*?)[\'"][^>]*?>')
@@ -43,6 +45,7 @@ class Crawler():
 	response_code={}
 	nb_url=1 # Number of url.
 	nb_rp=0 # Number of url blocked by the robots.txt
+	nb_ignore=0 # Number of url ignored by extension or word
 	nb_exclude=0 # Number of url excluded by extension or word
 
 	output_file = None
@@ -50,18 +53,20 @@ class Crawler():
 	target_domain = ""
 	scheme		  = ""
 
-	def __init__(self, parserobots=False, output=None, report=False ,domain="",
-				 exclude=[], skipext=[], drop=[], debug=False, verbose=False, images=False):
+	def __init__(self, parserobots=False, output=None, report=False, domain="", exclude=[],
+				 ignore=[], skipext=[], drop=[], debug=False, verbose=False, images=False, forcehttps=False):
 		self.parserobots = parserobots
 		self.output 	= output
 		self.report 	= report
 		self.domain 	= domain
+		self.ignore 	= ignore
 		self.exclude 	= exclude
 		self.skipext 	= skipext
 		self.drop		= drop
 		self.debug		= debug
 		self.verbose    = verbose
 		self.images     = images
+		self.forcehttps = forcehttps
 
 		if self.debug:
 			log_level = logging.DEBUG
@@ -72,14 +77,17 @@ class Crawler():
 
 		logging.basicConfig(level=log_level)
 
-		self.tocrawl = set([self.clean_link(domain)])
+		domain = self.clean_link(domain)
+		logging.info("Root domain is: {}".format(domain))
+		logging.info("Force HTTPS is {}".format(self.forcehttps))
+		self.tocrawl = set([domain])
 
 		try:
 			url_parsed = urlparse(domain)
 			self.target_domain = url_parsed.netloc
 			self.scheme = url_parsed.scheme
 		except:
-			logging.error("Invalide domain")
+			logging.error("Invalid domain")
 			raise ("Invalid domain")
 
 		if self.output:
@@ -113,9 +121,9 @@ class Crawler():
 		logging.info("Crawling #{}: {}".format(len(self.crawled), url.geturl()))
 		request = Request(crawling, headers={"User-Agent":config.crawler_user_agent})
 
-		# Ignore ressources listed in the not_parseable_ressources
-		# Its avoid dowloading file like pdf… etc
-		if not url.path.endswith(self.not_parseable_ressources):
+		# Ignore resources listed in the not_parseable_resources
+		# Don't download files like pdf… etc
+		if not url.path.endswith(self.not_parseable_resources):
 			try:
 				response = urlopen(request)
 			except Exception as e:
@@ -156,12 +164,19 @@ class Crawler():
 					date = response.headers['Date']
 
 				date = datetime.strptime(date, '%a, %d %b %Y %H:%M:%S %Z')
-
+			except IOError as e:
+				# URLOpen error, probably our fault (momentary network outage). Trust URL.
+			    if hasattr(e, 'reason'):
+			        logging.debug ("{1} ===> {0}, adding url anyway.".format(e, crawling))
+		        # HTTPError, probably their fault so we will throw away this url.
+			    elif hasattr(e, 'code'):
+			        logging.debug ("{1} ===> {0}".format(e, crawling))
+			        return None
 			except Exception as e:
 				logging.debug ("{1} ===> {0}".format(e, crawling))
 				return None
 		else:
-			# Response is None, content not downloaded, just continu and add
+			# Response is None, content not downloaded, just continue and add
 			# the link to the sitemap
 			msg = "".encode( )
 			date = None
@@ -187,8 +202,8 @@ class Crawler():
 						image_link = "/{0}".format(image_link)
 					image_link = "{0}{1}".format(self.domain.strip("/"), image_link.replace("./", "/"))
 
-				# Ignore image if path is in the exclude_url list
-				if not self.exclude_url(image_link):
+				# Ignore image if path is in the ignore_url list
+				if not self.ignore_url(image_link):
 					continue
 
 				# Ignore other domain images
@@ -203,16 +218,44 @@ class Crawler():
 					logging.debug("Found image : {0}".format(image_link))
 					image_list = "{0}<image:image><image:loc>{1}</image:loc></image:image>".format(image_list, self.htmlspecialchars(image_link))
 
-		# Last mod fetched ?
-		lastmod = ""
-		if date:
-			lastmod = "<lastmod>"+date.strftime('%Y-%m-%dT%H:%M:%S+00:00')+"</lastmod>"
+		# Check if the current url contains an excluded word
+		full_url = url.geturl()
+		if self.exclude_url(full_url):
+			self.exclude_link(full_url)
+			self.nb_exclude+=1
+		else:
+			# If it doesn't, we add it to the sitemap
+			# Location
+			loc = '<loc>{}</loc>'.format(self.htmlspecialchars(full_url))
 
-		print ("<url><loc>"+self.htmlspecialchars(url.geturl())+"</loc>" + lastmod + image_list + "</url>", file=self.output_file)
-		if self.output_file:
-			self.output_file.flush()
+			# Last mod
+			date = date if date else datetime.now()
+			lastmod = '<lastmod>{}</lastmod>'.format(date.strftime('%Y-%m-%dT%H:%M:%S+00:00'))
 
-		# Found links
+			# Priority
+			priority = 0.5
+			if url.path == '':
+				priority = 1.0
+			elif 'aspx' in url.path:
+				priority = 0.9
+			priority = '<priority>{}</priority>'.format(priority)
+
+			# Change frequency
+			changefreq = '<changefreq>monthly</changefreq>'
+
+			# Full entry
+			sitemap_entry = '<url>{}{}{}{}{}</url>'.format(loc,
+														   lastmod,
+														   image_list,
+														   changefreq,
+														   priority)
+
+			print (sitemap_entry, file=self.output_file)
+			if self.output_file:
+				self.output_file.flush()
+
+
+		# Either way, we deal with the found links
 		links = self.linkregex.findall(msg)
 		for link in links:
 			link = link.decode("utf-8", errors="ignore")
@@ -241,11 +284,13 @@ class Crawler():
 			domain_link = parsed_link.netloc
 			target_extension = os.path.splitext(parsed_link.path)[1][1:]
 
+			if link.strip() == '':
+				continue
 			if link in self.crawled:
 				continue
 			if link in self.tocrawl:
 				continue
-			if link in self.excluded:
+			if link in self.ignored:
 				continue
 			if domain_link != self.target_domain:
 				continue
@@ -263,20 +308,20 @@ class Crawler():
 
 			# Check if the navigation is allowed by the robots.txt
 			if not self.can_fetch(link):
-				self.exclude_link(link)
+				self.ignore_link(link)
 				self.nb_rp+=1
 				continue
 
 			# Check if the current file extension is allowed or not.
 			if (target_extension in self.skipext):
-				self.exclude_link(link)
-				self.nb_exclude+=1
+				self.ignore_link(link)
+				self.nb_ignore+=1
 				continue
 
-			# Check if the current url doesn't contain an excluded word
-			if (not self.exclude_url(link)):
-				self.exclude_link(link)
-				self.nb_exclude+=1
+			# Check if the current url contains an ignored word
+			if self.ignore_url(link):
+				self.ignore_link(link)
+				self.nb_ignore+=1
 				continue
 
 			self.tocrawl.add(link)
@@ -284,6 +329,10 @@ class Crawler():
 		return None
 
 	def clean_link(self, link):
+		# Ensure urls are HTTPS when we want them to be.
+		if self.forcehttps:
+			link = link.replace('http:', 'https:')
+
 		l = urlparse(link)
 		l_res = list(l)
 		l_res[2] = l_res[2].replace("./", "/")
@@ -297,6 +346,10 @@ class Crawler():
 	def __continue_crawling(self):
 		if self.tocrawl:
 			self.__crawling()
+
+	def ignore_link(self,link):
+		if link not in self.ignored:
+			self.ignored.add(link)
 
 	def exclude_link(self,link):
 		if link not in self.excluded:
@@ -326,11 +379,17 @@ class Crawler():
 			logging.debug ("Error during parsing robots.txt")
 			return True
 
+	def ignore_url(self, link):
+		for ex in self.ignore:
+			if ex in link:
+				return True
+		return False
+
 	def exclude_url(self, link):
 		for ex in self.exclude:
 			if ex in link:
-				return False
-		return True
+				return True
+		return False
 
 	def htmlspecialchars(self, text):
 		return text.replace("&", "&amp;").replace('"', "&quot;").replace("<", "&lt;").replace(">", "&gt;")
@@ -340,8 +399,8 @@ class Crawler():
 		print ("Number of link crawled : {0}".format(len(self.crawled)))
 		if self.parserobots:
 			print ("Number of link block by robots.txt : {0}".format(self.nb_rp))
-		if self.skipext or self.exclude:
-			print ("Number of link exclude : {0}".format(self.nb_exclude))
+		if self.skipext or self.ignore:
+			print ("Number of link ignore : {0}".format(self.nb_ignore))
 
 		for code in self.response_code:
 			print ("Nb Code HTTP {0} : {1}".format(code, self.response_code[code]))

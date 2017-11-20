@@ -7,7 +7,7 @@
 	"parserobots":false,
 	"debug":true,
 	"output":"sitemap.xml",
-	"exclude":	[
+	"ignore":	[
 				"action=edit"
 				]
 }
