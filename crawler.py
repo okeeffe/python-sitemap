@@ -330,7 +330,7 @@ class Crawler():
         if self.forcehttps:
             link = link.replace('http:', 'https:')
         # Replace spaces with '+' signs. 
-        link.replace(' ', '+')
+        link = link.replace(' ', '+')
 
         l = urlparse(link)
         l_res = list(l)
@@ -399,16 +399,18 @@ class Crawler():
 
     def make_report(self):
         print ("Number of found URL : {0}".format(self.nb_url))
-        print ("Number of link crawled : {0}".format(len(self.crawled)))
+        print ("Number of links crawled : {0}".format(len(self.crawled)))
         if self.parserobots:
-            print ("Number of link block by robots.txt : {0}".format(self.nb_rp))
+            print ("Number of links block by robots.txt : {0}".format(self.nb_rp))
         if self.skipext or self.ignore:
-            print ("Number of link ignore : {0}".format(self.nb_ignore))
+            print ("Number of links ignore : {0}".format(self.nb_ignore))
+        if self.exclude:
+            print ("Number of links excluded : {0}".format(self.nb_exclude))
 
         for code in self.response_code:
             print ("Nb Code HTTP {0} : {1}".format(code, self.response_code[code]))
 
         for code in self.marked:
-            print ("Link with status {0}:".format(code))
+            print ("Links with status {0}:".format(code))
             for uri in self.marked[code]:
                 print ("\t- {0}".format(uri))
