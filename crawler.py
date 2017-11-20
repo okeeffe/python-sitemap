@@ -236,6 +236,7 @@ class Crawler():
 			priority = 0.5
 			if url.path == '':
 				priority = 1.0
+			# TODO: Horrible hack for specific use-case out of laziness.
 			elif 'aspx' in url.path:
 				priority = 0.9
 			priority = '<priority>{}</priority>'.format(priority)
