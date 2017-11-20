@@ -4,7 +4,7 @@ from urllib.parse import urljoin, urlunparse
 
 import re
 from urllib.parse import urlparse
-from urllib.request import urlopen, Request
+from urllib.request import urlopen, Request, URLError, HTTPError
 from urllib.robotparser import RobotFileParser
 from datetime import datetime
 
@@ -127,26 +127,25 @@ class Crawler():
         if not url.path.endswith(self.not_parseable_resources):
             try:
                 response = urlopen(request)
-            except IOError as e:
-                # URLOpen error, probably our fault (momentary network outage). Trust URL.
-                if hasattr(e, 'reason'):
-                    logging.info("{1} ===> {0}, adding url anyway.".format(e, crawling))
+            except HTTPError as e:
                 # HTTPError, probably their fault so we will throw away this url.
-                elif hasattr(e, 'code'):
-                    if e.code in self.response_code:
-                        self.response_code[e.code]+=1
+                if e.code in self.response_code:
+                    self.response_code[e.code]+=1
+                else:
+                    self.response_code[e.code]=1
+
+                # Gestion des urls marked pour le reporting
+                if self.report:
+                    if e.code in self.marked:
+                        self.marked[e.code].append(crawling)
                     else:
-                        self.response_code[e.code]=1
+                        self.marked[e.code] = [crawling]
 
-                    # Gestion des urls marked pour le reporting
-                    if self.report:
-                        if e.code in self.marked:
-                            self.marked[e.code].append(crawling)
-                        else:
-                            self.marked[e.code] = [crawling]
-
-                    logging.info("{1} ==> {0}, not adding url.".format(e, crawling))
-                    return self.__continue_crawling()
+                logging.info("{1} ==> {0}, not adding url.".format(e, crawling))
+                return self.__continue_crawling()
+            except URLError as e:
+                # URLOpen error, probably our fault (momentary network outage). Trust URL.
+                logging.info("{1} ===> {0}, adding url anyway.".format(e, crawling))
         else:
             logging.debug("Ignore {0} content might be not parseable.".format(crawling))
             response = None
@@ -330,6 +329,8 @@ class Crawler():
         # Ensure urls are HTTPS when we want them to be.
         if self.forcehttps:
             link = link.replace('http:', 'https:')
+        # Replace spaces with '+' signs. 
+        link.replace(' ', '+')
 
         l = urlparse(link)
         l_res = list(l)
