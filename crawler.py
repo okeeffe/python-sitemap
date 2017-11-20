@@ -68,9 +68,9 @@ class Crawler():
 		self.images     = images
 		self.forcehttps = forcehttps
 
-		if self.debug:
+		if self.verbose:
 			log_level = logging.DEBUG
-		elif self.verbose:
+		elif self.debug:
 			log_level = logging.INFO
 		else:
 			log_level = logging.ERROR
@@ -78,8 +78,8 @@ class Crawler():
 		logging.basicConfig(level=log_level)
 
 		domain = self.clean_link(domain)
-		logging.info("Root domain is: {}".format(domain))
-		logging.info("Force HTTPS is {}".format(self.forcehttps))
+		logging.debug("Root domain is: {}".format(domain))
+		logging.debug("Force HTTPS is {}".format(self.forcehttps))
 		self.tocrawl = set([domain])
 
 		try:
@@ -358,9 +358,13 @@ class Crawler():
 
 	def check_robots(self):
 		robots_url = urljoin(self.domain, "robots.txt")
-		self.rp = RobotFileParser()
-		self.rp.set_url(robots_url)
-		self.rp.read()
+		try:
+			self.rp = RobotFileParser()
+			self.rp.set_url(robots_url)
+			self.rp.read()
+		except Exception as e:
+			logging.error("Could not read robots.txt so ignoring. Error: {}".format(e))
+			self.parserobots = False
 
 	def can_fetch(self, link):
 		try:
@@ -368,7 +372,7 @@ class Crawler():
 				if self.rp.can_fetch("*", link):
 					return True
 				else:
-					logging.debug ("Crawling of {0} disabled by robots.txt".format(link))
+					logging.debug("Crawling of {0} disabled by robots.txt".format(link))
 					return False
 
 			if not self.parserobots:
@@ -377,7 +381,7 @@ class Crawler():
 			return True
 		except:
 			# On error continue!
-			logging.debug ("Error during parsing robots.txt")
+			logging.debug("Error during parsing robots.txt")
 			return True
 
 	def ignore_url(self, link):
